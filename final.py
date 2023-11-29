@@ -19,8 +19,6 @@ WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
 RED = (255, 0, 0)
 
-mymap = np.zeros((HEIGHT + 1, WIDTH + 1)).tolist()
-
 class Agent:
     def __init__(self, x, y):
         self.x = x
