@@ -2,16 +2,16 @@ import cv2
 import numpy as np
 import math
 
-WIDTH, HEIGHT = 200, 200
+WIDTH, HEIGHT = 300, 300
 AGENT_SIZE = 1
-NUM_AGENTS = 100
+NUM_AGENTS = 1000
 
 SPEED = 2  # pixel/frame
 DIR_ANGLE = 30
 
-SENSOR_ANGLE = 40
+SENSOR_ANGLE = 30
 
-SENSOR_LENGTH = 5
+SENSOR_LENGTH = 8
 
 EVAPORATION = 4
 
@@ -24,7 +24,7 @@ class Agent:
         self.x = x
         self.y = y
         self.speed = SPEED
-        self.pheromone = np.random.randint(100, 255)
+        self.pheromone = np.random.randint(100, 200)
 
         i = np.random.randint(-self.speed, self.speed)
         j = math.sqrt(self.speed**2 - i**2)
@@ -37,68 +37,54 @@ class Agent:
         moving_dir = self.direction / np.linalg.norm(self.direction)
         sensor_dir = moving_dir * SENSOR_LENGTH
 
-        # Add red sensors to detect red areas
-        front_sensor_x = int(self.x + sensor_dir[0])
-        front_sensor_y = int(self.y + sensor_dir[1])
-
-        left_sensor_x = int(self.x + sensor_dir[0] * math.cos(math.radians(SENSOR_ANGLE)) - sensor_dir[1] * math.sin(math.radians(SENSOR_ANGLE)))
-        left_sensor_y = int(self.y + sensor_dir[1] * math.cos(math.radians(SENSOR_ANGLE)) + sensor_dir[0] * math.sin(math.radians(SENSOR_ANGLE)))
-
-        right_sensor_x = int(self.x + sensor_dir[0] * math.cos(math.radians(-SENSOR_ANGLE)) - sensor_dir[1] * math.sin(math.radians(-SENSOR_ANGLE)))
-        right_sensor_y = int(self.y + sensor_dir[1] * math.cos(math.radians(-SENSOR_ANGLE)) + sensor_dir[0] * math.sin(math.radians(-SENSOR_ANGLE)))
+        sensor_positions = np.array([
+            [self.x, self.y],
+            [self.x + sensor_dir[0] * math.cos(math.radians(SENSOR_ANGLE)) - sensor_dir[1] * math.sin(math.radians(SENSOR_ANGLE)),
+            self.y + sensor_dir[1] * math.cos(math.radians(SENSOR_ANGLE)) + sensor_dir[0] * math.sin(math.radians(SENSOR_ANGLE))],
+            [self.x + sensor_dir[0] * math.cos(math.radians(-SENSOR_ANGLE)) - sensor_dir[1] * math.sin(math.radians(-SENSOR_ANGLE)),
+            self.y + sensor_dir[1] * math.cos(math.radians(-SENSOR_ANGLE)) + sensor_dir[0] * math.sin(math.radians(-SENSOR_ANGLE))]
+        ], dtype=int)
 
         try:
-            image2[front_sensor_y, front_sensor_x] = (0, 100, 100)
-            image2[left_sensor_y, left_sensor_x] = (0, 100, 100)
-            image2[right_sensor_y, right_sensor_x] = (0, 100, 100)
+            # Extract sensor values using NumPy slicing
+            sensor_values = image[sensor_positions[:, 1], sensor_positions[:, 0], 2]
 
-            front_sensor_value = image[front_sensor_y, front_sensor_x, 2]
-            left_sensor_value = image[left_sensor_y, left_sensor_x, 2]
-            right_sensor_value = image[right_sensor_y, right_sensor_x, 2]
-
-            sens = 1
+            front_sensor_value, left_sensor_value, right_sensor_value = sensor_values
 
             # Adjust direction based on red sensor values
-            if front_sensor_value > left_sensor_value and front_sensor_value > right_sensor_value or (right_sensor_value < sens and left_sensor_value < sens):
-                # Move straight towards the area with the highest red intensity
-                # self.direction = [self.direction[0], self.direction[1]]
+            if front_sensor_value > left_sensor_value and front_sensor_value > right_sensor_value or (
+                    right_sensor_value < 1 and left_sensor_value < 1):
                 pass
             elif left_sensor_value > right_sensor_value:
-                # Turn left towards the area with higher red intensity
-                self.direction = [
-                    self.direction[0] * math.cos(math.radians(-DIR_ANGLE)) - self.direction[1] * math.sin(math.radians(-DIR_ANGLE)),
-                    self.direction[1] * math.cos(math.radians(-DIR_ANGLE)) + self.direction[0] * math.sin(math.radians(-DIR_ANGLE))
-                ]
+                self.direction = np.dot(self.direction, np.array([
+                    [math.cos(math.radians(-DIR_ANGLE)), -math.sin(math.radians(-DIR_ANGLE))],
+                    [math.sin(math.radians(-DIR_ANGLE)), math.cos(math.radians(-DIR_ANGLE))]
+                ]))
             else:
-                # Turn right towards the area with higher red intensity
-                self.direction = [
-                    self.direction[0] * math.cos(math.radians(DIR_ANGLE)) - self.direction[1] * math.sin(math.radians(DIR_ANGLE)),
-                    self.direction[1] * math.cos(math.radians(DIR_ANGLE)) + self.direction[0] * math.sin(math.radians(DIR_ANGLE))
-                ]
-
-            
-        except:
+                self.direction = np.dot(self.direction, np.array([
+                    [math.cos(math.radians(DIR_ANGLE)), -math.sin(math.radians(DIR_ANGLE))],
+                    [math.sin(math.radians(DIR_ANGLE)), math.cos(math.radians(DIR_ANGLE))]
+                ]))
+        except IndexError:
             pass
 
         self.x = int(self.x + self.direction[0])
         self.y = int(self.y + self.direction[1])
 
         if self.x < 0 or self.y < 0 or self.x >= WIDTH or self.y >= HEIGHT:
-            self.direction = [-self.direction[0], -self.direction[1]]
+            self.direction *= -1
 
             self.x = int(self.x + self.direction[0])
             self.y = int(self.y + self.direction[1])
 
         path_pixels = get_line_pixels(last_x, last_y, self.x, self.y)
 
-        # size = 10
         pheromone_list = []
-        for path_pixel in path_pixels:
-            # x, y = path_pixel
-            pheromone = image[path_pixel[1], path_pixel[0]]
-            _pheromone = pheromone[2] + self.pheromone
-            pheromone[2] = _pheromone if _pheromone <= 255 else 255
-            pheromone_list.append(pheromone)  # BGR format for OpenCV
+        for pixel in path_pixels:
+            x, y = pixel
+            pheromone = image[y, x][2] + self.pheromone
+            image[y, x][2] = min(255, pheromone)
+            pheromone_list.append(image[y, x])
 
         return (path_pixels, pheromone_list)
 
@@ -110,16 +96,6 @@ def red_filter(image):
     red_pixel_coordinates = np.column_stack(np.where(red_channel > 0))
 
     return red_pixel_coordinates
-
-def simple_blur(image, x, y, size):
-
-    region = image[max(0, y - size // 2):min(HEIGHT, y + size // 2),
-                   max(0, x - size // 2):min(WIDTH, x + size // 2), :]
-    average_color = np.mean(region, axis=(0, 1)) * 10
-    # print (average_color)
-    image[y - size // 2:y + size // 2, x - size // 2:x + size // 2, :] = average_color
-
-    return image
 
 def get_line_pixels(x1, y1, x2, y2):
     pixels = []
@@ -165,15 +141,13 @@ while running:
     # EVAPORATION
     red_pixels = red_filter(layer1)
 
-    for red_pixel in red_pixels:
-        pheromone = layer1[red_pixel[0], red_pixel[1]]
-        _pheromone = pheromone[2] - EVAPORATION
-        pheromone[2] = _pheromone if _pheromone >= 0 else 0
-        layer1[red_pixel[0], red_pixel[1]] = pheromone
+    red_pixels = np.array(red_pixels)
+    layer1_red_pixels = layer1[red_pixels[:, 0], red_pixels[:, 1]]
 
-    if frame > 2 :
-        layer1 = cv2.GaussianBlur(layer1, (5, 5), 1)
-        frame = 0
+    # Update pheromone values using vectorized operations
+    layer1_red_pixels[:, 2] = np.maximum(0, layer1_red_pixels[:, 2] - EVAPORATION)
+
+    layer1[red_pixels[:, 0], red_pixels[:, 1]] = layer1_red_pixels
 
 
     for agent in agents:
@@ -185,6 +159,7 @@ while running:
 
         # Draw agent
         # cv2.circle(image, (agent.x, agent.y), AGENT_SIZE, WHITE, -1)
+    layer1 = cv2.GaussianBlur(layer1, (5, 5), 1)
 
     result = cv2.addWeighted(layer1, 1, image, 1, 0)
 
