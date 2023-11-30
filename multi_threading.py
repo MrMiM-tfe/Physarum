@@ -5,17 +5,17 @@ import os
 import threading
 
 
-WIDTH, HEIGHT = 500, 500
+WIDTH, HEIGHT = 400, 400
 AGENT_SIZE = 1
-NUM_AGENTS = 3000
+NUM_AGENTS = 1000
 
 AGENTS = False
 IN_CENTER = False
 
 SPEED = 2  # pixel/frame
-DIR_ANGLE = 20 # deg
+DIR_ANGLE = 10 # deg
 
-SENSOR_ANGLE = 30 # deg
+SENSOR_ANGLE = 20 # deg
 SENSOR_LENGTH = 10 # pixel
 
 PHEROMONE_MIN = 50 # 0
@@ -29,7 +29,10 @@ NUM_BLUR_THREADS = 5
 WOBBLING = 10
 WOBBLING_CHANCE = 30 # [0, 100]
 
-SCALE = 1.5
+INSANITY_PHEROMONE = 230 # [0, 255]
+INSANITY_CHANCE = 30 # [0, 100]
+
+SCALE = 1
 FRAMERATE = 27
 
 # r: random, c: go to center
@@ -45,6 +48,7 @@ class Agent:
         self.y = y
         self.speed = SPEED
         self.pheromone = np.random.randint(PHEROMONE_MIN, PHEROMONE_MAX)
+        self.insanity = False
 
         # set Direction
         fr = FIRST_DIRECTION
@@ -81,26 +85,52 @@ class Agent:
 
             front_sensor_value, left_sensor_value, right_sensor_value = sensor_values
 
-            # Adjust direction based on red sensor values
-            if front_sensor_value > left_sensor_value and front_sensor_value > right_sensor_value or (
-                    right_sensor_value < 1 and left_sensor_value < 1):
-                pass
-            elif left_sensor_value > right_sensor_value:
-                self.direction = np.dot(self.direction, np.array([
-                    [math.cos(math.radians(-DIR_ANGLE)), -math.sin(math.radians(-DIR_ANGLE))],
-                    [math.sin(math.radians(-DIR_ANGLE)), math.cos(math.radians(-DIR_ANGLE))]
-                ]))
+            if np.random.randint(0, 100) >= INSANITY_CHANCE or max(sensor_values) < INSANITY_PHEROMONE:
+
+                self.insanity = False
+                # Adjust direction based on red sensor values (must value)
+                if front_sensor_value > left_sensor_value and front_sensor_value > right_sensor_value or (
+                        right_sensor_value < 1 and left_sensor_value < 1):
+                    pass
+                elif left_sensor_value > right_sensor_value:
+                    self.direction = np.dot(self.direction, np.array([
+                        [math.cos(math.radians(-DIR_ANGLE)), -math.sin(math.radians(-DIR_ANGLE))],
+                        [math.sin(math.radians(-DIR_ANGLE)), math.cos(math.radians(-DIR_ANGLE))]
+                    ]))
+                else:
+                    self.direction = np.dot(self.direction, np.array([
+                        [math.cos(math.radians(DIR_ANGLE)), -math.sin(math.radians(DIR_ANGLE))],
+                        [math.sin(math.radians(DIR_ANGLE)), math.cos(math.radians(DIR_ANGLE))]
+                    ]))
             else:
-                self.direction = np.dot(self.direction, np.array([
-                    [math.cos(math.radians(DIR_ANGLE)), -math.sin(math.radians(DIR_ANGLE))],
-                    [math.sin(math.radians(DIR_ANGLE)), math.cos(math.radians(DIR_ANGLE))]
-                ]))
+                self.insanity = True
+                # Adjust direction based on red sensor values (least value)
+                if front_sensor_value < left_sensor_value and front_sensor_value < right_sensor_value or (
+                        right_sensor_value < 1 and left_sensor_value < 1):
+                    pass
+                elif left_sensor_value < right_sensor_value:
+                    self.direction = np.dot(self.direction, np.array([
+                        [math.cos(math.radians(-DIR_ANGLE)), -math.sin(math.radians(-DIR_ANGLE))],
+                        [math.sin(math.radians(-DIR_ANGLE)), math.cos(math.radians(-DIR_ANGLE))]
+                    ]))
+                else:
+                    self.direction = np.dot(self.direction, np.array([
+                        [math.cos(math.radians(DIR_ANGLE)), -math.sin(math.radians(DIR_ANGLE))],
+                        [math.sin(math.radians(DIR_ANGLE)), math.cos(math.radians(DIR_ANGLE))]
+                    ]))
         except IndexError:
             pass
 
         self.x = int(self.x + self.direction[0])
         self.y = int(self.y + self.direction[1])
 
+        if self.x < 0 or self.y < 0 or self.x >= WIDTH or self.y >= HEIGHT:
+            self.direction *= -1
+
+            self.x = int(self.x + self.direction[0])
+            self.y = int(self.y + self.direction[1])
+
+        # wobbling
         wobbling_direction = np.zeros(2)
         if np.random.randint(0, 100) <= WOBBLING_CHANCE:
 
@@ -116,12 +146,6 @@ class Agent:
 
                 self.x = int(self.x + wobbling_direction[0])
                 self.y = int(self.y + wobbling_direction[1])
-
-        if self.x < 0 or self.y < 0 or self.x >= WIDTH or self.y >= HEIGHT:
-            self.direction *= -1
-
-            self.x = int(self.x + self.direction[0])
-            self.y = int(self.y + self.direction[1])
 
         path_pixels = get_line_pixels(last_x, last_y, self.x, self.y)
 
@@ -224,6 +248,23 @@ def gaussian_blur_v(image, num_threads=NUM_BLUR_THREADS):
 
     return result
 
+def create_gradient(colors):
+    image_size = (256,100)
+    gradient_image = np.zeros((image_size[1], image_size[0], 3), dtype=np.uint8)
+
+    num_colors = len(colors)
+    color_interval = image_size[0] / (num_colors - 1)
+
+    for i in range(num_colors - 1):
+        start_idx = int(i * color_interval)
+        end_idx = int((i + 1) * color_interval)
+
+        for channel in range(3):
+            gradient_image[:, start_idx:end_idx, channel] = np.linspace(
+                colors[i][channel], colors[i + 1][channel], end_idx - start_idx
+            )
+
+    return gradient_image
 
 if IN_CENTER:
     agents = [Agent(np.random.randint(int(WIDTH / 2) - 100, int(WIDTH / 2) + 100), np.random.randint(int(HEIGHT / 2) - 100, int(HEIGHT / 2) + 100)) for _ in range(NUM_AGENTS)]
@@ -255,6 +296,16 @@ while True:
 
 video_out = cv2.VideoWriter(filename, fourcc, FRAMERATE, (WIDTH, HEIGHT))
 
+colors = [(255,255,255), (0, 130, 5)]
+colors = [(0,0,0),(252, 227, 3)]
+
+# Create the gradient image
+gradient = create_gradient(colors)
+
+# cv2.imshow('Gradient Image', gradient)
+# cv2.waitKey(0)
+# cv2.destroyAllWindows()
+
 running = True
 frame = 0
 while running:
@@ -271,14 +322,6 @@ while running:
     red_pixels = np.array(red_pixels)
     layer1_red_pixels = layer1[red_pixels[:, 0], red_pixels[:, 1]]
 
-    # mask = np.logical_not(np.logical_and(np.arange(3)[:, None] == 1, np.arange(3) == 1))
-    # for x, y in red_pixels:
-    #     layer1[x - 1:x + 1, y - 1:y + 1, 2] = np.minimum(255, (layer1[x,y,2] * 0.5) + layer1[x - 1:x + 1, y - 1:y + 1, 2])
-
-    # print(red_pixels[:, 0] - 1, end=" ")
-    # print(red_pixels[:, 1])
-    # layer1[red_pixels[:, 0] - 1:red_pixels[:, 0] + 1, red_pixels[:, 1] - 1:red_pixels[:, 1] + 1][1] = 255
-
     # Update pheromone values using vectorized operations
     layer1_red_pixels[:, 2] = np.maximum(0, layer1_red_pixels[:, 2] * 0.9)
 
@@ -294,15 +337,24 @@ while running:
 
         # Draw agent
         if AGENTS:
-            image[agent.y, agent.x] = (255, 255, 255)
+            image[agent.y, agent.x] = (255,0,0) if agent.insanity else (255, 255, 255)
         # cv2.circle(image, (agent.x, agent.y), AGENT_SIZE, WHITE, -1)
 
-    layer1 = gaussian_blur_h(layer1)
-    layer1 = gaussian_blur_v(layer1)
-    # layer1 = parallel_diffuse(layer1, 0.5, 0.1, 5)
+    # layer1 = gaussian_blur_h(layer1)
+    # layer1 = gaussian_blur_v(layer1)
+    layer1 = cv2.GaussianBlur(layer1, (3,3), 0)
 
-    result = cv2.addWeighted(layer1, 1, image, 1, 0)
+    layer1_copy = layer1.copy()
 
+    layer1_copy[:,:] = gradient[0, layer1[:,:, 2]]
+
+    # layer1_copy[:,:, 0] = layer1[:,:, 2]
+    # layer1_copy[:,:, 2] = 0
+
+    result = cv2.addWeighted(layer1_copy, 1, image, 1, 0)
+
+
+    
     video_out.write(result)
 
     layer2.fill(0)
