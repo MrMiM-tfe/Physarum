@@ -1,87 +1,39 @@
-import pygame
+import tkinter as tk
+from PIL import Image, ImageTk
 import numpy as np
 
-# Constants
-WIDTH, HEIGHT = 800, 600
-GRID_SIZE = 10
-NUM_CELLS_X = WIDTH // GRID_SIZE
-NUM_CELLS_Y = HEIGHT // GRID_SIZE
-NUM_AGENTS = 10
-MEMORY_DECAY = 0.9  # Memory decay factor
+class ImageDisplayApp:
+    def __init__(self, root, image_array):
+        self.root = root
+        self.root.title("Image Display App")
 
-# Colors
-WHITE = (255, 255, 255)
-BLACK = (0, 0, 0)
-RED = (255, 0, 0)
+        # Convert NumPy array to PIL Image
+        self.image = Image.fromarray(image_array)
 
-# Agent class
-class PhysarumAgent:
-    def __init__(self, x, y):
-        self.x = x
-        self.y = y
-        self.path = [(x, y)]
-        self.alpha_values = [255]
-        self.prev_direction = np.array([0, 0])
+        # Create Tkinter PhotoImage object from PIL Image
+        self.tk_image = ImageTk.PhotoImage(self.image)
 
-    def move(self):
-        # Physarum movement rules
-        neighbors = get_neighbors(self.x, self.y)
-        if neighbors:
-            prev_direction = self.prev_direction
-            # Introduce bias towards the previous direction
-            if np.random.rand() < 0.8:
-                neighbors = sorted(neighbors, key=lambda pos: np.dot(np.array(pos) - np.array([self.x, self.y]), prev_direction))
+        # Create a label to display the image
+        self.image_label = tk.Label(root, image=self.tk_image)
+        self.image_label.pack()
 
-            idx = np.random.choice(len(neighbors))
-            new_x, new_y = neighbors[idx]
-            self.prev_direction = np.array([new_x - self.x, new_y - self.y])
-            self.x, self.y = new_x, new_y
-            self.path.append((new_x, new_y))
-            self.alpha_values.append(255)
+        # Add a button to perform some action (you can customize this)
+        self.button = tk.Button(root, text="Click me!", command=self.button_click)
+        self.button.pack()
 
-    def update_alpha_values(self):
-        self.alpha_values = [max(0, alpha - 5) for alpha in self.alpha_values]
+    def button_click(self):
+        # Example action to perform when the button is clicked
+        print("Button clicked!")
 
-# Function to get neighboring cells
-def get_neighbors(x, y):
-    neighbors = []
-    for i in range(-1, 2):
-        for j in range(-1, 2):
-            new_x, new_y = x + i, y + j
-            if 0 <= new_x < NUM_CELLS_X and 0 <= new_y < NUM_CELLS_Y:
-                neighbors.append((new_x, new_y))
-    return neighbors
+# Example NumPy image array (replace this with your own image data)
+# You may need to adjust the array dimensions and data type based on your image.
+image_array = np.random.randint(0, 255, size=(300, 400, 3), dtype=np.uint8)
 
-# Initialize Pygame
-pygame.init()
-screen = pygame.display.set_mode((WIDTH, HEIGHT))
-pygame.display.set_caption("Physarum Simulation")
+# Create the Tkinter root window
+root = tk.Tk()
 
-# Create agents
-agents = [PhysarumAgent(np.random.randint(NUM_CELLS_X), np.random.randint(NUM_CELLS_Y)) for _ in range(NUM_AGENTS)]
+# Create the ImageDisplayApp instance
+app = ImageDisplayApp(root, image_array)
 
-# Main loop
-running = True
-while running:
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            running = False
-
-    # Move agents
-    for agent in agents:
-        agent.move()
-        agent.update_alpha_values()
-
-    # Draw agents and their paths with fading effect
-    screen.fill(BLACK)
-    for agent in agents:
-        for (x, y), alpha in zip(agent.path, agent.alpha_values):
-            color = (alpha, 0, 0)
-            pygame.draw.rect(screen, color, (x * GRID_SIZE, y * GRID_SIZE, GRID_SIZE, GRID_SIZE))
-        x, y = agent.path[-1]
-        pygame.draw.rect(screen, WHITE, (x * GRID_SIZE, y * GRID_SIZE, GRID_SIZE, GRID_SIZE))
-
-    pygame.display.flip()
-    pygame.time.delay(100)
-
-pygame.quit()
+# Run the Tkinter event loop
+root.mainloop()

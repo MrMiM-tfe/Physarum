@@ -1,21 +1,39 @@
 import cv2
 import numpy as np
 import math
+import os
+import threading
+
 
 WIDTH, HEIGHT = 500, 500
 AGENT_SIZE = 1
-NUM_AGENTS = 1000
+NUM_AGENTS = 3000
+
+AGENTS = False
+IN_CENTER = False
 
 SPEED = 2  # pixel/frame
-DIR_ANGLE = 20
+DIR_ANGLE = 20 # deg
 
-SENSOR_ANGLE = 30
+SENSOR_ANGLE = 30 # deg
+SENSOR_LENGTH = 10 # pixel
 
-SENSOR_LENGTH = 10
+PHEROMONE_MIN = 50 # 0
+PHEROMONE_MAX = 160 # 255
 
-EVAPORATION = 20
+EVAPORATION = 4 # [0, 255]
+# DIFFUSION = 0.5
+BLUR_SCALE = 3
+NUM_BLUR_THREADS = 5
 
-DIFFUSION = 0.5
+WOBBLING = 10
+WOBBLING_CHANCE = 30 # [0, 100]
+
+SCALE = 1.5
+FRAMERATE = 27
+
+# r: random, c: go to center
+FIRST_DIRECTION = "c"
 
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
@@ -26,18 +44,21 @@ class Agent:
         self.x = x
         self.y = y
         self.speed = SPEED
-        self.pheromone = np.random.randint(100, 200)
+        self.pheromone = np.random.randint(PHEROMONE_MIN, PHEROMONE_MAX)
 
-        center_x = WIDTH / 2
-        center_y = HEIGHT / 2
+        # set Direction
+        fr = FIRST_DIRECTION
+        if fr == "c":
+            center_x = WIDTH / 2
+            center_y = HEIGHT / 2
 
-        # to_center_vector = np.array([center_x - self.x, center_y - self.y])
-        # normalized_vector = to_center_vector / np.linalg.norm(to_center_vector)
-        # self.direction = normalized_vector * SPEED
-
-        i = np.random.randint(-self.speed, self.speed)
-        j = math.sqrt(self.speed**2 - i**2)
-        self.direction = np.array([i, j])
+            to_center_vector = np.array([center_x - self.x, center_y - self.y])
+            normalized_vector = to_center_vector / np.linalg.norm(to_center_vector)
+            self.direction = normalized_vector * SPEED
+        elif fr == "r":
+            i = np.random.randint(-self.speed, self.speed)
+            j = math.sqrt(self.speed**2 - i**2)
+            self.direction = np.array([i, j])
 
     def move(self, image, image2):
         last_x = int(self.x)
@@ -79,6 +100,22 @@ class Agent:
 
         self.x = int(self.x + self.direction[0])
         self.y = int(self.y + self.direction[1])
+
+        wobbling_direction = np.zeros(2)
+        if np.random.randint(0, 100) <= WOBBLING_CHANCE:
+
+            i = np.random.randint(-self.speed, self.speed)
+            j = math.sqrt(self.speed**2 - i**2)
+            wobbling_direction = np.array([i, j])
+
+            self.x = int(self.x + wobbling_direction[0])
+            self.y = int(self.y + wobbling_direction[1])
+
+            if self.x < 0 or self.y < 0 or self.x >= WIDTH or self.y >= HEIGHT:
+                wobbling_direction *= -1
+
+                self.x = int(self.x + wobbling_direction[0])
+                self.y = int(self.y + wobbling_direction[1])
 
         if self.x < 0 or self.y < 0 or self.x >= WIDTH or self.y >= HEIGHT:
             self.direction *= -1
@@ -127,47 +164,96 @@ def get_line_pixels(x1, y1, x2, y2):
 
     return pixels
 
-def diffuse(img, diffuse_rate, decay_rate, delta_time):
-    height, width, _ = img.shape
+def apply_gaussian_blur_h(image, start_row, end_row, result):
+    # for i in range(start_row, end_row):
+    # result[start_row:end_row, :] = cv2.GaussianBlur(image[start_row:end_row, :], (5, 5), 0)
+    for i in range(start_row, end_row):
+        result[i, :] = cv2.GaussianBlur(image[i, :], (BLUR_SCALE, BLUR_SCALE), 0)
 
-    # Create a padded image to handle boundary conditions
-    padded_img = cv2.copyMakeBorder(img, 1, 1, 1, 1, cv2.BORDER_REFLECT)
+def gaussian_blur_h(image, num_threads=NUM_BLUR_THREADS):
+    rows, cols, _ = image.shape
+    result = np.zeros_like(image)
 
-    # Create a 3x3 kernel for the blur
-    kernel = np.ones((3, 3), dtype=np.float32) / 9
+    # Create threads
+    threads = []
+    rows_per_thread = rows // num_threads
+    for i in range(num_threads):
+        start_row = i * rows_per_thread
+        end_row = start_row + rows_per_thread
+        if i == num_threads - 1:  # Ensure the last thread processes any remaining rows
+            end_row = rows
+        thread = threading.Thread(target=apply_gaussian_blur_h, args=(image, start_row, end_row, result))
+        threads.append(thread)
 
-    # Apply the blur using filter2D
-    blurred_img = cv2.filter2D(padded_img.astype(np.float32), -1, kernel)[1:-1, 1:-1]
+    # Start threads
+    for thread in threads:
+        thread.start()
 
-    # Diffusion operation
-    diffuse_weight = min(1.0, max(0.0, diffuse_rate * delta_time))
-    blended_img = img * (1 - diffuse_weight) + blurred_img * diffuse_weight
+    # Wait for all threads to finish
+    for thread in threads:
+        thread.join()
 
-    # Decay operation
-    diffused_img = np.maximum(0, blended_img - decay_rate * delta_time)
+    return result
 
-    return diffused_img.astype(np.uint8)
+def apply_gaussian_blur_v(image, start_row, end_row, result):
+    for i in range(start_row, end_row):
+        result[:, i] = cv2.GaussianBlur(image[:, i], (BLUR_SCALE, BLUR_SCALE), 0)
 
-# Example usage:
-# Assuming img is your input image (numpy array) and other parameters are defined.
-# diffused_image = diffuse_optimized(img, diffuse_rate, decay_rate, delta_time)
+def gaussian_blur_v(image, num_threads=NUM_BLUR_THREADS):
+    cols, rows, _ = image.shape
+    result = np.zeros_like(image)
+
+    # Create threads
+    threads = []
+    rows_per_thread = rows // num_threads
+    for i in range(num_threads):
+        start_row = i * rows_per_thread
+        end_row = start_row + rows_per_thread
+        if i == num_threads - 1:  # Ensure the last thread processes any remaining rows
+            end_row = rows
+        thread = threading.Thread(target=apply_gaussian_blur_v, args=(image, start_row, end_row, result))
+        threads.append(thread)
+
+    # Start threads
+    for thread in threads:
+        thread.start()
+
+    # Wait for all threads to finish
+    for thread in threads:
+        thread.join()
+
+    return result
 
 
-# agents = [Agent(np.random.randint(WIDTH), np.random.randint(HEIGHT)) for _ in range(NUM_AGENTS)]
-agents = [Agent(np.random.randint(int(WIDTH / 2) - 100, int(WIDTH / 2) + 100), np.random.randint(int(HEIGHT / 2) - 100, int(HEIGHT / 2) + 100)) for _ in range(NUM_AGENTS)]
+if IN_CENTER:
+    agents = [Agent(np.random.randint(int(WIDTH / 2) - 100, int(WIDTH / 2) + 100), np.random.randint(int(HEIGHT / 2) - 100, int(HEIGHT / 2) + 100)) for _ in range(NUM_AGENTS)]
+else:
+    agents = [Agent(np.random.randint(WIDTH), np.random.randint(HEIGHT)) for _ in range(NUM_AGENTS)]
 
 # Initialize image with three channels for BGR
 image = np.zeros((HEIGHT, WIDTH, 3), dtype=np.uint8)
 layer1 = np.zeros((HEIGHT, WIDTH, 3), dtype=np.uint8)
+layer2 = np.zeros((HEIGHT, WIDTH, 3), dtype=np.uint8)
 
 # Create a named window for visualization
 cv2.namedWindow('Simulation', cv2.WINDOW_NORMAL)
-cv2.resizeWindow('Simulation', WIDTH + 400, HEIGHT + 400)  
+cv2.resizeWindow('Simulation', int(WIDTH * SCALE), int(HEIGHT * SCALE))
 
 
 # Set up VideoWriter
 fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # Choose the codec (mp4v works well)
-video_out = cv2.VideoWriter('simulation_video.mp4', fourcc, 30, (WIDTH, HEIGHT))
+
+base_filename = 'videos/simulation_video'
+file_extension = '.mp4'
+file_number = 1
+
+while True:
+    filename = f"{base_filename}_{file_number}{file_extension}"
+    if not os.path.exists(filename):
+        break
+    file_number += 1
+
+video_out = cv2.VideoWriter(filename, fourcc, FRAMERATE, (WIDTH, HEIGHT))
 
 running = True
 frame = 0
@@ -207,17 +293,24 @@ while running:
             layer1[coordinate[1], coordinate[0]] = pheromone
 
         # Draw agent
-        image[agent.y, agent.x] = (255, 255, 255)
+        if AGENTS:
+            image[agent.y, agent.x] = (255, 255, 255)
         # cv2.circle(image, (agent.x, agent.y), AGENT_SIZE, WHITE, -1)
 
-    # layer1 = cv2.GaussianBlur(layer1, (3, 3), 0)
-    layer1 = diffuse(layer1, 0.5, 0.1, 5)
+    layer1 = gaussian_blur_h(layer1)
+    layer1 = gaussian_blur_v(layer1)
+    # layer1 = parallel_diffuse(layer1, 0.5, 0.1, 5)
 
     result = cv2.addWeighted(layer1, 1, image, 1, 0)
 
+    video_out.write(result)
+
+    layer2.fill(0)
+    cv2.putText(layer2, str(frame // FRAMERATE), (10, 100), 1, 2, WHITE)
+
+    result = cv2.addWeighted(layer2, 1, result, 1, 0)
     # Display the image
     cv2.imshow('Simulation', result)
-    video_out.write(result)
 
 cv2.destroyAllWindows()
 video_out.release()
