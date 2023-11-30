@@ -1,5 +1,5 @@
 video
 build
-.exe
-.cpp
-.mp4
+*.exe
+*.cpp
+*.mp4
