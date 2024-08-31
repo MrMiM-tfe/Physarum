@@ -318,11 +318,7 @@ layer1 = np.zeros((HEIGHT, WIDTH, 3), dtype=np.uint8)
 layer2 = np.zeros((HEIGHT, WIDTH, 3), dtype=np.uint8)
 
 # Create a named window for visualization
-cv2.namedWindow('Simulation', cv2.WINDOW_NORMAL)
-cv2.resizeWindow('Simulation', int(WIDTH * SCALE), int(HEIGHT * SCALE))
-
-
-# Set up VideoWriter
+# cv2.namedWindow('Simulation', cv2.WINDOW_NORMAL)
 fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # Choose the codec (mp4v works well)
 
 base_filename = 'videos/simulation_video'
@@ -337,24 +333,15 @@ while True:
 
 video_out = cv2.VideoWriter(filename, fourcc, FRAMERATE, (WIDTH, HEIGHT))
 
-# colors = [(255,255,255), (0, 130, 5)]
-colors = [(0,0,0), (255,255,255)]
-# colors = [(0,0,0), (0,0,0), (0,0,0), (0,0,0),(252, 227, 3),(252, 227, 3),(252, 227, 3)]
+colors = [(131,58,180), (253,29,29)]
 
 # Create the gradient image
 gradient = create_gradient(colors)
-
-# cv2.imshow('Gradient Image', gradient)
-# cv2.waitKey(0)
-# cv2.destroyAllWindows()
 
 running = True
 frame = 0
 while running:
     frame += 1
-    key = cv2.waitKey(10)
-    if key == 27:  # Press 'Esc' to exit
-        running = False
 
     image.fill(0)  # Clear the image
 
@@ -369,12 +356,10 @@ while running:
 
     layer1[red_pixels[:, 0], red_pixels[:, 1]] = layer1_red_pixels
 
-
     for agent in agents:
         path, pheromones = agent.move(layer1, image)
 
         for coordinate, pheromone in zip(path, pheromones):
-            # Draw pheromone
             try:
                 layer1[coordinate[1], coordinate[0]] = pheromone
             except IndexError:
@@ -383,22 +368,15 @@ while running:
         # Draw agent
         if AGENTS:
             image[agent.y, agent.x] = (255,0,0) if agent.insanity else (255, 255, 255)
-        # cv2.circle(image, (agent.x, agent.y), AGENT_SIZE, WHITE, -1)
 
     layer1 = gaussian_blur_h(layer1)
     layer1 = gaussian_blur_v(layer1)
-    # layer1 = cv2.GaussianBlur(layer1, (3,3), 0)
 
     layer1_copy = layer1.copy()
 
     layer1_copy[:,:] = gradient[0, layer1[:,:, 2]]
 
-    # layer1_copy[:,:, 0] = layer1[:,:, 2]
-    # layer1_copy[:,:, 2] = 0
-
     result = cv2.addWeighted(layer1_copy, 1, image, 1, 0)
-
-
     
     video_out.write(result)
 
@@ -406,8 +384,18 @@ while running:
     cv2.putText(layer2, str(frame // FRAMERATE), (10, 100), 1, 2, WHITE)
 
     result = cv2.addWeighted(layer2, 1, result, 1, 0)
-    # Display the image
-    cv2.imshow('Simulation', result)
 
+    # Comment or remove the following lines to prevent opening a window
+    # cv2.imshow('Simulation', result)
+    # key = cv2.waitKey(10)
+    # if key == 27:  # Press 'Esc' to exit
+    #    running = False
+
+    # Add a condition to stop the loop if needed
+    # Example: stop after a certain number of frames
+    if frame > 100:  # adjust the frame limit as needed
+        running = False
+
+# Make sure to release the video file
 cv2.destroyAllWindows()
 video_out.release()
